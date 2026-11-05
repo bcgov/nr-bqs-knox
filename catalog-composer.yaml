@@ -10,12 +10,12 @@ spec:
     deploymentConfigPaths: charts
     unitTestsPath: ""
     artifactRepositoryType: GitHubPackages
-    artifactRepositoryPath: https://maven.pkg.github.com/bcgov-nr/oscar-ocp
+    artifactRepositoryPath: https://maven.pkg.github.com/bcgov-nr/nr-bqs-knox
     toolsBuildSecrets: ""
     toolsLocalBuildSecrets: ""
     clientId: blah
     publishArtifactSuffix: dist
-    customRunner: "group: Larger Runners - OpenShift Static-IP"
+    customRunner: "ubuntu-latest"
     postDeployTestsPath: ""
     deployType: nodejs
     artifactSrc: repo
