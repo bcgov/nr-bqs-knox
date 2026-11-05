@@ -1,0 +1,33 @@
+# Example runtime environment for nr-bqs-knox.
+#
+# Copy to .env (or wire these into your Kubernetes deployment) and fill in the
+# real values. NEVER commit the real secret_id.
+#
+#   cp .dockerenv-example .env
+#
+# --- Required ----------------------------------------------------------------
+#
+# AppRole credentials. The role_id may be baked into the image at build time
+# (see Dockerfile --build-arg ROLE_ID) and does not need to be set at runtime;
+# the secret_id MUST be supplied at runtime from a Kubernetes secret.
+VAULT_ROLE_ID=
+VAULT_SECRET_ID=
+
+# --- Optional ----------------------------------------------------------------
+#
+# Knox Vault endpoint (defaults to the BC Gov Knox Vault).
+VAULT_ADDR=https://knox.io.nrs.gov.bc.ca
+#
+# Secret path to read. For KV v2 use secret/data/<path>; the app auto-detects
+# the KV v1 vs v2 payload layout.
+VAULT_SECRET_PATH=secret/data/nr-bqs-knox
+#
+# Vault namespace, if the secret lives inside a namespace.
+VAULT_NAMESPACE=
+#
+# HTTP port the server listens on.
+PORT=8080
+
+# Set to "true" ONLY for non-production Vault servers using self-signed TLS.
+# Leave empty/unset in production.
+VAULT_INSECURE=

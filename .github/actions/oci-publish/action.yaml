@@ -1,0 +1,89 @@
+name: 'OCI Package Publish'
+description: 'Generate manifest annotation, push artifact via ORAS to GHCR, and output manifest metadata'
+
+inputs:
+  service_name:
+    description: 'Name of the service'
+    required: true
+  license:
+    description: 'License'
+    required: false
+    default: ''
+  project_tag:
+    description: 'Project version tag'
+    required: true
+  publish_dir:
+    description: 'Directory or artifact suffix to push'
+    required: true
+  working_directory:
+    description: 'Working directory to run ORAS push from'
+    required: false
+    default: '.'
+  github_token:
+    description: 'GitHub token for GHCR authentication'
+    required: true
+  title:
+    description: 'Title for the OCI artifact annotation (defaults to service_name-artifact)'
+    required: false
+    default: ''
+  description:
+    description: 'Description for the OCI artifact annotation'
+    required: false
+    default: ''
+  extra_annotations:
+    description: 'JSON object string of extra annotations to merge into $manifest'
+    required: false
+    default: '{}'
+
+outputs:
+  artifact_sha256:
+    description: 'SHA256 checksum of layer digests'
+    value: ${{ steps.publish.outputs.artifact_sha256 }}
+  artifact_size:
+    description: 'Total size of layer artifacts in bytes'
+    value: ${{ steps.publish.outputs.artifact_size }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Publish OCI Artifact
+      id: publish
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        cat <<'EOF_JQ' > /tmp/gen_annotation.jq
+        .extra as $extra |
+        .desc as $desc |
+        .default_desc as $default_desc |
+        .title as $title |
+        .default_title as $default_title |
+        {
+          "$manifest": (
+            {
+              "org.opencontainers.image.description": (if $desc != "" then $desc else $default_desc end),
+              "org.opencontainers.image.licenses": .license,
+              "org.opencontainers.image.source": .source,
+              "org.opencontainers.image.title": (if $title != "" then $title else $default_title end),
+              "org.opencontainers.image.version": .version
+            } + $extra
+          )
+        }
+        EOF_JQ
+
+        jq -n \
+          --arg desc "${{ inputs.description }}" \
+          --arg default_desc "Build artifact for ${{ inputs.service_name }} version ${{ inputs.project_tag }}" \
+          --arg license "${{ inputs.license }}" \
+          --arg source "${{ github.repositoryUrl }}" \
+          --arg title "${{ inputs.title }}" \
+          --arg default_title "${{ inputs.service_name }}-artifact" \
+          --arg version "${{ inputs.project_tag }}" \
+          --argjson extra '${{ inputs.extra_annotations }}' \
+          -f /tmp/gen_annotation.jq > /tmp/annotation.json
+
+        oras login ghcr.io -u ${{ github.actor }} --password-stdin <<< ${{ inputs.github_token }}
+        oras push --annotation-file /tmp/annotation.json --export-manifest /tmp/manifest.json "ghcr.io/${{ github.repository }}/${{ inputs.service_name }}:${{ inputs.project_tag }}" ${{ inputs.publish_dir }}
+        MANIFEST=$(cat /tmp/manifest.json)
+        echo "$MANIFEST"
+        echo "artifact_sha256=$(echo "$MANIFEST" | jq -r '.layers | map(.digest) | join(",")' | sha256sum | awk '{print $1}')" >> $GITHUB_OUTPUT
+        echo "artifact_size=$(echo "$MANIFEST" | jq -r '.layers | map(.size) | add')" >> $GITHUB_OUTPUT

@@ -1,0 +1,121 @@
+# Default values for the nr-bqs-knox OpenShift deployment chart.
+#
+# This chart deploys the nr-bqs-knox website backend, which authenticates to the
+# Knox Vault using the AppRole method. The role_id is baked into the image at
+# build time; the short-lived secret_id is supplied at runtime through a
+# Kubernetes secret (see values.image.vaultSecretIDSecretName).
+#
+# The image lives on GitHub Container Registry (GHCR):
+#   ghcr.io/bcgov-nr/nr-bqs-knox
+# Override the version/tag with:  --set image.tag=<version>
+
+replicaCount: 1
+
+# --- Image ------------------------------------------------------------------
+image:
+  # GHCR image reference for nr-bqs-knox.
+  # Repository + tag are set by the deployment pipeline; override tag/version at
+  # release time:  --set image.tag=<version>  or  --set image.repository=...
+  registry: ghcr.io
+  repository: bcgov-nr/nr-bqs-knox
+  tag: "0.0.0"
+  pullPolicy: IfNotPresent
+  # When true, pull the image using the secret referenced by imagePullSecrets.
+  # Set to true when pulling a private GHCR image with a pull secret.
+  private: false
+  # name of the ImagePullSecret created in this namespace (see imagePullSecret).
+  imagePullSecretName: nr-bqs-knox-ghcr
+
+  # --- Knox Vault / AppRole configuration -----------------------------------
+  # The AppRole role_id is baked into the image at build time and normally does
+  # NOT need to be set here. Set it only to override the baked-in value.
+  vaultRoleID: ""
+  # Name of the Kubernetes secret that holds the AppRole secret_id. The secret
+  # must define the key VAULT_SECRET_ID and be created ahead of the deploy.
+  vaultSecretIDSecretName: nr-bqs-knox-vault
+  # Key inside the secret that holds the AppRole secret_id.
+  vaultSecretIDKey: VAULT_SECRET_ID
+
+  # Knox Vault endpoint. Defaults to the BC Gov Knox Vault.
+  vaultAddr: "https://knox.io.nrs.gov.bc.ca"
+  # Secret path to read. For KV v2 use secret/data/<path>.
+  vaultSecretPath: "secret/data/nr-bqs-knox"
+  # Vault namespace (leave empty for no namespace).
+  vaultNamespace: ""
+  # Set to "true" only for non-production Vault servers with self-signed TLS.
+  vaultInsecure: "false"
+  # HTTP port the server listens on.
+  port: 8080
+
+# --- Resource management ----------------------------------------------------
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 64Mi
+
+# --- Service ----------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+  # Optional: expose the service through a NodePort or LoadBalancer.
+  annotations: {}
+
+# --- OpenShift Route --------------------------------------------------------
+route:
+  enabled: true
+  # Host to expose. Leave empty to let OpenShift auto-generate one.
+  host: ""
+  # TLS termination mode.
+  tls:
+    termination: edge
+    insecurePolicy: Redirect
+  labels: {}
+  annotations: {}
+
+# --- OpenShift-specific configuration ---------------------------------------
+openshift:
+  # Apply OpenShift SCC labels / pod security annotations. The app runs as the
+  # non-root uid 65532 (see Dockerfile), so it is compatible with a restricted
+  # security context.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+# --- ImagePullSecret (created by this chart) --------------------------------
+# Create an ImagePullSecret in this namespace to pull from private GHCR.
+# Leave imagePullSecret.create: false and supply your own secret instead.
+imagePullSecret:
+  create: true
+  # Name of the secret to create. Defaults to image.imagePullSecretName.
+  name: nr-bqs-knox-ghcr
+  # Base64-encoded .dockerconfigjson for GHCR. Provide it out-of-band; never
+  # commit a real token. Example:
+  #   --set imagePullSecret.dockerConfigJSON="$(cat .dockerconfigjson | base64 -w0)"
+  dockerConfigJSON: ""
+
+# --- Pod annotations / labels -----------------------------------------------
+podAnnotations: {}
+podLabels: {}
+
+# --- Standard k8s knobs -----------------------------------------------------
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+# Extra labels applied to all resources.
+commonLabels: {}

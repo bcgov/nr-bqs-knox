@@ -1,0 +1,26 @@
+Thank you for installing {{ .Chart.Name }}.
+
+Image:   {{ include "nr-bqs-knox.image" . }}
+Service: {{ include "nr-bqs-knox.fullname" . }}:{{ .Values.service.port }}
+
+{{- if .Values.route.enabled }}
+The OpenShift Route "{{ include "nr-bqs-knox.fullname" . }}" exposes the
+service over HTTPS. Retrieve the host with:
+
+  oc get route {{ include "nr-bqs-knox.fullname" . }} -n {{ .Release.Namespace }}
+{{- end }}
+
+{{- if not .Values.image.vaultRoleID }}
+Note: VAULT_ROLE_ID is not set, so the AppRole role_id baked into the image is
+used. Set image.vaultRoleID to override it.
+{{- end }}
+
+Before this deployment can serve traffic, ensure a Kubernetes secret exists
+with key "{{ .Values.image.vaultSecretIDKey }}" holding the Knox Vault AppRole
+secret_id:
+
+  kubectl get secret {{ .Values.image.vaultSecretIDSecretName }} -n {{ .Release.Namespace }}
+
+If it is missing, create it out-of-band and then roll the pods:
+
+  oc rollout restart deploy/{{ include "nr-bqs-knox.fullname" . }} -n {{ .Release.Namespace }}

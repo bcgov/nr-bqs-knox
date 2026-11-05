@@ -1,0 +1,16 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+spec:
+  system: oscar
+  type: website
+  lifecycle: production
+  owner: oscar
+metadata:
+  name: nr-bqs-knox
+  description: sample app
+  title: Better quality sample with Knox
+  tags:
+    - website
+  annotations:
+    license: Apache-2.0
+    github.com/project-slug: bcgov-nr/nr-bqs-knox

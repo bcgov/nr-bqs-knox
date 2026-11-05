@@ -1,0 +1,32 @@
+{
+  "event": {
+    "provider": "github-action-build",
+    "reason": "Job triggered",
+    "url": "JOB_URL"
+  },
+  "actions": [
+    {
+      "action": "package-build",
+      "id": "build",
+      "provision": [],
+      "service": {
+        "project": "oscar",
+        "name": "nr-bqs-knox",
+        "environment": "tools"
+      },
+      "package": {
+        "architecture": "container",
+        "category": "software",
+        "version": "",
+        "buildVersion": "",
+        "buildNumber": 0,
+        "name": "nr-bqs-knox",
+        "type": "application/vnd.oci.image.manifest.v1+json",
+        "license": "Apache-2.0"
+      }
+    }
+  ],
+  "user": {
+    "name": "github@internal"
+  }
+}

@@ -1,0 +1,85 @@
+name: Preflight
+
+on:
+  workflow_call:
+    secrets:
+      token:
+        description: "The Broker token"
+        required: true
+    inputs:
+      catalog_info:
+        description: "The catalog file"
+        type: string
+        default: "catalog-info.yaml"
+        required: false
+      preflight_context:
+        description: 'Determines which pre-flight checks to run. Must be in (build, deploy, deploy-jasper).'
+        default: ''
+        required: true
+        type: string
+      build_workflow:
+        description: 'Build workflow used to validate the build artifact. (Required if preflight_context is deploy)'
+        default: ''
+        required: false
+        type: string
+    outputs:
+      can_rebuild:
+        value: ${{ jobs.set-check-outputs.outputs.can_rebuild }}
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  check-jwt:
+    name: Check broker token
+    uses: ./.github/workflows/check-token.yaml
+    secrets:
+      token: ${{ secrets.token }}
+
+  check-build-artifact:
+    name: Check build artifact
+    uses: ./.github/workflows/check-build-artifact.yaml
+    with:
+      build_workflow: ${{ inputs.build_workflow }}
+      catalog_info: ${{ inputs.catalog_info }}
+    if: inputs.preflight_context == 'deploy'
+
+  check-release-package:
+    name: Check and validate release package
+    uses: ./.github/workflows/check-release-package.yaml
+    secrets:
+      token: ${{ secrets.token }}
+    with:
+      catalog_info: ${{ inputs.catalog_info }}
+    if: ${{ inputs.preflight_context == 'build' && github.ref_type == 'tag' }}
+
+  set-check-outputs:
+    name: Set check outputs
+    runs-on: ubuntu-latest
+    outputs:
+      can_rebuild: ${{ steps.set-can-rebuild.outputs.can_rebuild }}
+    needs: check-release-package
+    if: ${{ always() && inputs.preflight_context == 'build' }}
+    steps:
+      - name: Display runner public IP
+        shell: bash
+        run: |
+          set +e
+          RUNNER_PUBLIC_IP=$(curl -fsS --max-time 10 https://api.ipify.org)
+          CURL_EXIT_CODE=$?
+          set -e
+
+          if [ "$CURL_EXIT_CODE" -eq 0 ] && [ -n "$RUNNER_PUBLIC_IP" ]; then
+            echo "Runner public IP: $RUNNER_PUBLIC_IP"
+          else
+            echo "Runner public IP: unavailable"
+          fi
+
+      - id: set-can-rebuild
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "can_rebuild=${{ needs.check-release-package.outputs.can_rebuild }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_type }}" == "branch" ]]; then
+            echo "can_rebuild=true" >> $GITHUB_OUTPUT
+          fi
+

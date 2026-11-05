@@ -1,0 +1,92 @@
+name: 'Deploy pipeline - nr-bqs-knox'
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deploy artifact from previous selection until this environment'
+        required: true
+        type: choice
+        options:
+          - development
+          - test
+          - production
+      deploy_tag:
+        description: 'Deployment config tag (If not provided, will auto-detect latest tag)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  preflight:
+    name: Preflight
+    uses: ./.github/workflows/preflight.yaml
+    with:
+      catalog_info: catalog-info.yaml
+      preflight_context: deploy
+      build_workflow: build-release-nr-bqs-knox.yaml
+    secrets:
+      token: ${{ secrets.broker_jwt_blah }}
+
+  find-tag:
+    name: Find latest deployment tag
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_tag: ${{ steps.set_tag.outputs.deploy_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-tags: true
+      - name: Find highest semantic version deployment tag
+        id: set_tag
+        run: |
+          #!/bin/bash
+          # List tags starting with 'd' and matching semantic version
+          tag=$(git tag --list 'd*' | grep -E '^d[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
+          if [ -z "$tag" ]; then
+            echo "::error::No deployment tags found. Please create a tag starting with 'd' and using semantic versioning (e.g., d1.0.0). See the README for instructions."
+            exit 1
+          fi
+          echo "Latest deployment tag: $tag"
+          echo "deploy_tag=$tag" >> $GITHUB_OUTPUT
+
+  deploy-development:
+    name: Deploy to development
+    uses: ./.github/workflows/deploy-nr-bqs-knox.yaml
+    needs: [preflight, find-tag]
+    with:
+      environment: development
+      deploy_tag: ${{ github.event.inputs.deploy_tag != '' && github.event.inputs.deploy_tag || needs.find-tag.outputs.deploy_tag }}
+    secrets: inherit
+    if: |
+      github.event.inputs.environment == 'development' ||
+      github.event.inputs.environment == 'test' ||
+      github.event.inputs.environment == 'production'
+
+  deploy-test:
+    name: Deploy to test
+    needs: [deploy-development, find-tag]
+    uses: ./.github/workflows/deploy-nr-bqs-knox.yaml
+    with:
+      environment: test
+      deploy_tag: ${{ github.event.inputs.deploy_tag != '' && github.event.inputs.deploy_tag || needs.find-tag.outputs.deploy_tag }}
+    secrets: inherit
+    if: |
+      github.event.inputs.environment == 'test' ||
+      github.event.inputs.environment == 'production'
+
+  deploy-production:
+    name: Deploy to production
+    needs: [deploy-test, find-tag]
+    uses: ./.github/workflows/deploy-nr-bqs-knox.yaml
+    with:
+      environment: production
+      deploy_tag: ${{ github.event.inputs.deploy_tag != '' && github.event.inputs.deploy_tag || needs.find-tag.outputs.deploy_tag }}
+    secrets: inherit
+    if: github.event.inputs.environment == 'production'

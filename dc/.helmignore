@@ -1,0 +1,11 @@
+# Patterns to ignore when building a package or uploading to a repository.
+.DS_Store
+.git/
+.gitignore
+*.tmpl
+*.yaml.un~
+*.yaml.orig
+charts/
+LICENSE
+README.md
+OWNERS

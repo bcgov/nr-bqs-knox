@@ -1,0 +1,11 @@
+{
+  "event": {
+    "provider": "github-action-build",
+    "reason": "Job triggered",
+    "url": "JOB_URL"
+  },
+  "actions": [],
+  "user": {
+    "name": "github@internal"
+  }
+}

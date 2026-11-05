@@ -1,0 +1,18 @@
+.git
+.github
+.gitignore
+
+# Composer / pipeline generated files not needed in the build context
+nr-repository-composer.sh
+catalog-info.yaml
+
+# Local development environment files
+.env-local.sh
+.env-build.sh
+
+# OS / editor noise
+.DS_Store
+**/.DS_Store
+*.swp
+
+# Keep the Go source (app/) and Dockerfile; ignore everything else above.

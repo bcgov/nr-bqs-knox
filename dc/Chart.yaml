@@ -1,0 +1,22 @@
+apiVersion: v2
+name: nr-bqs-knox
+description: OpenShift deployment for the nr-bqs-knox website backend (Knox Vault AppRole auth)
+type: application
+# Chart version tracks the application image version (the GHCR tag).
+# It is supplied at install/release time via --version / a values override;
+# the value below is only a default placeholder.
+version: 0.0.0
+appVersion: "0.0.0"
+kubeVersion: ">=1.24.0-0"
+keywords:
+  - nr-bqs-knox
+  - kubernetes
+  - openshift
+  - knox
+  - vault
+  - website
+home: https://github.com/bcgov-nr/nr-bqs-knox
+sources:
+  - https://github.com/bcgov-nr/nr-bqs-knox
+maintainers:
+  - name: oscar

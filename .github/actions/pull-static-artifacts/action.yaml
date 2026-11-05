@@ -1,0 +1,31 @@
+name: 'Pull static OCI artifacts'
+description: 'Log in to GHCR and pull static OCI artifacts using ORAS'
+inputs:
+  oci_artifacts:
+    description: 'JSON array string of static OCI artifacts'
+    required: true
+  github_token:
+    description: 'GitHub Token for GHCR authentication'
+    required: true
+  working_directory:
+    description: 'Working directory to run ORAS pull from'
+    required: false
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Pull static artifacts
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: |
+        oras login ghcr.io -u ${{ github.actor }} --password-stdin <<< ${{ inputs.github_token }}
+        echo "$OCI_ARTIFACTS" | jq -c '.[]' | while read -r item; do
+          artifact=$(echo "$item" | jq -r '.artifact')
+          output=$(echo "$item" | jq -r '.output')
+          echo "Pulling artifact $artifact to $output"
+          oras pull "$artifact" --output "$output"
+          oras manifest fetch -o "$output/manifest.json" "$artifact"
+        done
+      env:
+        OCI_ARTIFACTS: ${{ inputs.oci_artifacts }}

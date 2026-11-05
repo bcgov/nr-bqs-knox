@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nr-bqs-knox.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nr-bqs-knox.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "nr-bqs-knox.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "nr-bqs-knox.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.image.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
+      serviceAccountName: {{ include "nr-bqs-knox.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.openshift.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ include "nr-bqs-knox.image" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.openshift.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.image.port }}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: {{ .Values.image.port | quote }}
+            {{- if .Values.image.vaultRoleID }}
+            - name: VAULT_ROLE_ID
+              value: {{ .Values.image.vaultRoleID | quote }}
+            {{- end }}
+            - name: VAULT_SECRET_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.image.vaultSecretIDSecretName }}
+                  key: {{ .Values.image.vaultSecretIDKey }}
+            - name: VAULT_ADDR
+              value: {{ .Values.image.vaultAddr | quote }}
+            - name: VAULT_SECRET_PATH
+              value: {{ .Values.image.vaultSecretPath | quote }}
+            {{- if .Values.image.vaultNamespace }}
+            - name: VAULT_NAMESPACE
+              value: {{ .Values.image.vaultNamespace | quote }}
+            {{- end }}
+            - name: VAULT_INSECURE
+              value: {{ .Values.image.vaultInsecure | quote }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

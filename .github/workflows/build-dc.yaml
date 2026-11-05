@@ -1,0 +1,159 @@
+name: Build deployment config
+
+on:
+  push:
+    tags:
+      - 'd*'
+    branches:
+      - 'main'
+      - 'deploy/*'
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BROKER_URL: https://broker.io.nrs.gov.bc.ca
+  BROKER_JWT: ${{ secrets.broker_jwt_blah }}
+
+jobs:
+  build-dc:
+    name: Build deployment config
+    runs-on:
+      group: Larger Runners - OpenShift Static-IP
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Set version
+        id: set-version
+        run: |
+          REF_NAME="${{ github.ref_name }}"
+          SAFE_REF_NAME=$(echo "$REF_NAME" | tr '/' '-')
+
+          if [[ ${{ startsWith(github.ref, 'refs/tags/d') }} = true ]]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=0.0.0-${SAFE_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Set build output parameters
+        id: set-build-output-parameters
+        run: |
+          echo "git_commit=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "build_guid=uuid::$(uuidgen)" >> $GITHUB_OUTPUT
+      - name: Build intention
+        run: sh ./.github/workflows/build-dc.sh
+        env:
+          EVENT_REASON: Build deployment config ${{ github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id}}
+          PACKAGE_BUILD_GUID: ${{ steps.set-build-output-parameters.outputs.build_guid }}
+          PACKAGE_BUILD_NUMBER: ${{ github.run_number }}
+          PACKAGE_BUILD_VERSION: ${{ steps.set-build-output-parameters.outputs.git_commit }}
+          PACKAGE_VERSION: ${{ steps.set-version.outputs.tag }}
+      - name: Open intention
+        uses: bcgov-nr/action-broker-intention-open@v2.1.0
+        with:
+          broker_jwt: ${{ secrets.broker_jwt_blah }}
+          intention_path: intention.json
+      - name: Start action nr-bqs-knox
+        uses: bcgov-nr/action-broker-action-start@v2.1.0
+        with:
+          action_token: 'ACTION_TOKEN_DCBUILD_0'
+      - name: Setup ORAS
+        uses: oras-project/setup-oras@v2
+      - name: Get deploy config path and type
+        id: catalog-info
+        run: |
+          # Extract package name from the project slug path
+          project_slug="${{ env.PROJECT_SLUG }}"
+          package_name="${project_slug##*/}"
+
+          # Write directly to outputs
+          echo "package_name=$package_name" >> "$GITHUB_OUTPUT"
+          echo "deploy_type=${{ env.DEPLOY_TYPE }}" >> "$GITHUB_OUTPUT"
+          echo "deploy_config_path=${{ env.DEPLOYMENT_CONFIG_PATHS }}" >> "$GITHUB_OUTPUT"
+
+          # Clean log summary
+          echo "Resolved package_name: $package_name"
+          echo "Resolved deploy_type: ${{ env.DEPLOY_TYPE }}"
+          echo "Resolved deploy_config_path: ${{ env.DEPLOYMENT_CONFIG_PATHS }}"
+        env:
+          DEPLOYMENT_CONFIG_PATHS: .jenkins catalog-info.yaml charts
+          DEPLOY_TYPE: nodejs
+          PROJECT_SLUG: bcgov-nr/nr-bqs-knox
+      - name: Push deployment config to registry
+        id: publish-dc
+        uses: ./.github/actions/oci-publish
+        with:
+          service_name: deployment-config
+          title: deployment-config
+          description: Deployment configuration ${{ steps.set-version.outputs.tag }}
+          project_tag: ${{ steps.set-version.outputs.tag }}
+          publish_dir: .jenkins catalog-info.yaml charts
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_annotations: |
+            {
+              "ca.gov.nrs.io.broker.intention.id": "${{ env.INTENTION_ID }}",
+              "ca.gov.nrs.io.broker.intention.url": "${{ env.BROKER_URL }}/v1/intention/${{ env.INTENTION_ID }}",
+              "ca.gov.nrs.io.broker.intention.action.services": "nr-bqs-knox"
+            }
+      - name: Send build info
+        run: |
+          echo "Sending build info for action: $ID"
+          curl -s -X POST "${{ env.BROKER_URL }}/v1/intention/action/patch" \
+            -H 'Content-Type: application/json' \
+            -H "X-Broker-Token: ${ACTION_TOKEN_DCBUILD_0}" \
+            -d "{\"package\":{\"checksum\": \"sha256:${ARTIFACT_SHA256}\", \"size\": ${ARTIFACT_SIZE}}}"
+        env:
+          ARTIFACT_SHA256: ${{ steps.publish-dc.outputs.artifact_sha256 }}
+          ARTIFACT_SIZE: ${{ steps.publish-dc.outputs.artifact_size }}
+      - name: Close intention
+        if: ${{ success() && env.INTENTION_TOKEN != '' }}
+        uses: bcgov-nr/action-broker-intention-close@v3
+        with:
+          intention_token: ${{ env.INTENTION_TOKEN }}
+      - name: Close intention (Failure)
+        if: ${{ failure() && env.INTENTION_TOKEN != '' }}
+        uses: bcgov-nr/action-broker-intention-close@v3
+        with:
+          intention_token: ${{ env.INTENTION_TOKEN }}
+          outcome: failure
+      - name: Resolve package link
+        id: package-link
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROJECT_TAG: ${{ steps.set-version.outputs.tag }}
+          PACKAGE_NAME: ${{ steps.catalog-info.outputs.package_name }}/deployment-config
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          ENCODED_PACKAGE_NAME="${PACKAGE_NAME//\//%2F}"
+          VERSION_ID="$(gh api "orgs/${REPOSITORY_OWNER}/packages/container/${ENCODED_PACKAGE_NAME}/versions" --paginate | jq -r --arg tag "$PROJECT_TAG" '.[] | select((.metadata.container.tags // []) | index($tag)) | .id' | head -n 1)"
+          if [[ -z "$VERSION_ID" ]]; then
+            PACKAGE_URL="https://github.com/${{ github.repository }}/pkgs/container/${ENCODED_PACKAGE_NAME}"
+          else
+            PACKAGE_URL="https://github.com/${{ github.repository }}/pkgs/container/${ENCODED_PACKAGE_NAME}/${VERSION_ID}?tag=${PROJECT_TAG}"
+          fi
+          echo "package_url=$PACKAGE_URL" >> "$GITHUB_OUTPUT"
+      - name: Generate deployment config summary
+        if: always()
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # Build Deployment Config Summary
+          | | |
+          | - | - |
+          | **Deployment Config Tag** | \`${{ env.PROJECT_TAG }}\` |
+          | **Package** | [deployment-config](${{ env.PACKAGE_URL }}) |
+          | **Deploy Type** | \`${{ env.DEPLOY_TYPE }}\` |
+          | **Deployment Config Path** | \`${{ env.DEPLOY_CONFIG_PATH }}\` |
+          | **Artifact SHA256** | \`${{ env.ARTIFACT_SHA256 }}\` |
+          | **Artifact Size** | \`${{ env.ARTIFACT_SIZE }}\`
+          EOF
+        env:
+          PROJECT_TAG: ${{ steps.set-version.outputs.tag }}
+          PACKAGE_URL: ${{ steps.package-link.outputs.package_url }}
+          DEPLOY_TYPE: ${{ steps.catalog-info.outputs.deploy_type }}
+          DEPLOY_CONFIG_PATH: ${{ steps.catalog-info.outputs.deploy_config_path }}
+          ARTIFACT_SHA256: ${{ steps.publish-dc.outputs.artifact_sha256 }}
+          ARTIFACT_SIZE: ${{ steps.publish-dc.outputs.artifact_size }}

@@ -1,0 +1,28 @@
+{{- if .Values.route.enabled -}}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "nr-bqs-knox.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nr-bqs-knox.labels" . | nindent 4 }}
+  {{- with .Values.route.labels }}
+  {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  host: {{ .Values.route.host | quote }}
+  to:
+    kind: Service
+    name: {{ include "nr-bqs-knox.fullname" . }}
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: {{ .Values.route.tls.termination }}
+    insecurePolicy: {{ .Values.route.tls.insecurePolicy }}
+  wildcardPolicy: None
+{{- end -}}

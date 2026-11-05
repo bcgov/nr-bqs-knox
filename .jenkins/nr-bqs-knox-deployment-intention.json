@@ -1,0 +1,62 @@
+{
+  "event": {
+    "provider": "EVENT_PROVIDER",
+    "reason": "Job triggered",
+    "url": "JOB_URL",
+    "trigger": {
+      "id": "trigger-id",
+      "name": "GitHub Action",
+      "url": "trigger-url"
+    }
+  },
+  "actions": [
+    {
+      "action": "server-access",
+      "id": "login",
+      "provision": ["token/self"],
+      "service": {
+        "name": "nr-bqs-knox",
+        "project": "oscar",
+        "environment": "",
+        "target": {
+          "name": "jenkins-apps",
+          "project": "jenkins",
+          "environment": "production"
+        }
+      }
+    },
+    {
+      "action": "package-configure",
+      "id": "configure",
+      "provision": ["token/self"],
+      "service": {
+        "name": "nr-bqs-knox",
+        "project": "oscar",
+        "environment": ""
+      }
+    },
+    {
+      "action": "package-installation",
+      "id": "install",
+      "provision": [],
+      "cloud": {
+        "target": {
+          "provider": "dxcas"
+        }
+      },
+      "service": {
+        "name": "nr-bqs-knox",
+        "project": "oscar",
+        "environment": ""
+      },
+      "package": {
+        "version": "",
+        "buildGuid": ""
+      },
+      "references": []
+    }
+  ],
+  "user": {
+    "name": "USER_ID"
+  }
+}

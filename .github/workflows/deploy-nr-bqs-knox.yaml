@@ -1,0 +1,374 @@
+name: 'Deploy - nr-bqs-knox'
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      deploy_tag:
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SERVICE_PROJECT: oscar
+  SERVICE_NAME: nr-bqs-knox
+  JOB: buildByToken/buildWithParameters?job=oscar/nr-bqs-knox
+  URL: https://cd.io.nrs.gov.bc.ca
+  PACKAGE_REPO: ghcr.io/${{ github.repository }}/nr-bqs-knox
+
+jobs:
+  deploy-pre-release-build:
+    name: Trigger ${{ inputs.environment || 'development' }} deployment
+    if: ${{ ! startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'development' }}
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: read
+    outputs:
+      project_version: ${{ steps.set-build-output.outputs.project_version }}
+      build_guid: ${{ steps.set-build-output.outputs.build_guid }}
+      build_number: ${{ steps.set-build-output.outputs.build_number }}
+      artifact_name: ${{ steps.set-build-output.outputs.artifact_name }}
+      artifact_sha256: ${{ steps.set-build-output.outputs.artifact_sha256 }}
+      download_url: ${{ steps.set-download-url.outputs.download_url }}
+      checkout_ref: ${{ steps.lookup-pr-merge-ref.outputs.checkout_ref }}
+      build_version: ${{ steps.set-build-output.outputs.build_version }}
+    steps:
+      - name: Lookup PR Merge Ref
+        id: lookup-pr-merge-ref
+        run: |
+          if [[ ${{ github.ref_name != 'main' }} = true ]]; then
+            RESPONSE=$(curl -s "https://api.github.com/repos/bcgov-nr/nr-bqs-knox/pulls?head=bcgov-nr:${{ github.ref_name }}&state=open&base=main" \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json")
+            PULL_REQUEST_NUMBER=$(echo "${RESPONSE}" | jq -r .[0].number)
+            RESPONSE=$(curl -s "https://api.github.com/repos/bcgov-nr/nr-bqs-knox/pulls/$PULL_REQUEST_NUMBER" \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json")
+            MERGEABLE=$(echo "${RESPONSE}" | jq -r .mergeable)
+            if [[ "$MERGEABLE" != "true" ]]; then
+              echo "::error ::Pull request #$PULL_REQUEST_NUMBER is not mergeable… aborted."
+              echo "This can be resolved by resolving the merge conflict with the main branch."
+              exit 1
+            fi
+            echo "build_sha=$(echo ${RESPONSE} | jq -r .merge_commit_sha)" >> $GITHUB_OUTPUT
+            echo "checkout_ref=refs/pull/${PULL_REQUEST_NUMBER}/merge" >> $GITHUB_OUTPUT
+          else
+            echo "build_sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "checkout_ref=${{ github.ref }}" >> $GITHUB_OUTPUT
+          fi
+        env:
+          BROKER_URL: https://broker.io.nrs.gov.bc.ca
+          BROKER_JWT: ${{ secrets.broker_jwt_blah }}
+          SERVICE_PROJECT: ${{ env.SERVICE_PROJECT }}
+          SERVICE_NAME: ${{ env.SERVICE_NAME }}
+      - name: Set build output
+        id: set-build-output
+        run: |
+          WHERE_QUERY=$(jq -rn \
+            --arg serviceProject "$SERVICE_PROJECT" \
+            --arg serviceName "$SERVICE_NAME" \
+            --arg buildSha "$BUILD_SHA" \
+            '{"actions.id":"build","actions.service.project":$serviceProject,"actions.service.name":$serviceName,"actions.package.buildVersion":$buildSha} | @uri')
+
+          RESPONSE=$(curl -s -X 'POST' \
+            "${BROKER_URL}/v1/intention/search?where=${WHERE_QUERY}&offset=0&limit=1" \
+            -H 'accept: application/json' \
+            -H 'Authorization: Bearer '"${BROKER_JWT}"'' \
+            -d '' \
+            --retry 2 \
+            --max-time 30 \
+            --connect-timeout 10 \
+            --retry-delay 5 \
+          )
+          if echo "$RESPONSE" | jq -e '.statusCode == 401' > /dev/null; then
+            echo "Status code is 401. This indicates an authorization error."
+            echo "Please check if your Broker Token is valid. Teams can generate a new one in Broker if needed."
+            echo "Link: https://broker.io.nrs.gov.bc.ca/browse/brokerAccount"
+            echo "Exiting..."
+            exit 1
+          fi
+          if [ "$(echo "$RESPONSE" | jq '.data | length')" -eq 0 ] || \
+             [ "$(echo "$RESPONSE" | jq '.data[].actions[].artifacts | length')" -eq 0 ]; then
+            echo
+            echo "============================================================"
+            echo "Error: Broker API response data is empty."
+            echo "------------------------------------------------------------"
+            echo "Explanation: No build information was found for this tag."
+            echo "Why it matters: The deployment cannot proceed without build metadata."
+            echo "Check if the most recent build completed and published the artifact to Broker."
+            echo "--- Broker API response below ---"
+            echo "$RESPONSE"
+            echo "============================================================"
+            echo
+            exit 1
+          fi
+          echo "project_version=$(echo ${RESPONSE} | jq -r '.data[].actions[].package.version')" >> $GITHUB_OUTPUT
+          echo "build_guid=$(echo ${RESPONSE} | jq -r '.data[].id')" >> $GITHUB_OUTPUT
+          echo "build_number=$(echo ${RESPONSE} | jq -r '.data[].actions[].package.buildNumber')" >> $GITHUB_OUTPUT
+          echo "build_version=$(echo ${RESPONSE} | jq -r '.data[].actions[].package.buildVersion')" >> $GITHUB_OUTPUT
+          echo "artifact_name=$(echo ${RESPONSE} | jq -r '.data[].actions[].artifacts[].name')" >> $GITHUB_OUTPUT
+          artifact_checksum=$(echo ${RESPONSE} | jq -r '.data[].actions[].artifacts[].checksum')
+          echo "artifact_sha256=${artifact_checksum#sha256:}" >> $GITHUB_OUTPUT
+        env:
+          BROKER_URL: https://broker.io.nrs.gov.bc.ca
+          BROKER_JWT: ${{ secrets.broker_jwt_blah }}
+          SERVICE_PROJECT: ${{ env.SERVICE_PROJECT }}
+          SERVICE_NAME: ${{ env.SERVICE_NAME }}
+          BUILD_SHA: ${{ steps.lookup-pr-merge-ref.outputs.build_sha }}
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+            fetch-depth: 0
+            fetch-tags: true
+            ref: ${{ steps.lookup-pr-merge-ref.outputs.checkout_ref }}
+      - name: Set download URL
+        id: set-download-url
+        run: |
+          DOWNLOAD_URL="${PACKAGE_REPO}:${PACKAGE_TAG}"
+          echo "${DOWNLOAD_URL}"
+          echo "download_url=$(echo ${DOWNLOAD_URL})" >> $GITHUB_OUTPUT
+        env:
+          PACKAGE_TAG: ${{ steps.lookup-pr-merge-ref.outputs.package_tag || steps.set-build-output.outputs.project_version }}
+          PACKAGE_REPO: ${{ env.PACKAGE_REPO }}
+
+  deploy-release-build:
+    name: Trigger deployment
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'development' }}
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      project_version: ${{ steps.set-tag-output.outputs.project_version }}
+      build_guid: ${{ steps.set-tag-output.outputs.build_guid }}
+      build_number: ${{ steps.set-tag-output.outputs.build_number }}
+      artifact_name: ${{ steps.set-tag-output.outputs.artifact_name }}
+      artifact_sha256: ${{ steps.set-tag-output.outputs.artifact_sha256 }}
+      download_url: ${{ steps.set-download-url.outputs.download_url }}
+      checkout_ref: ${{ steps.set-tag-output.outputs.checkout_ref }}
+      build_version: ${{ steps.set-tag-output.outputs.build_version }}
+    steps:
+      - name: Set tag output
+        id: set-tag-output
+        run: |
+          TAG=${{ github.ref_name }}
+          PROJECT_VERSION=${TAG#v}
+          WHERE_QUERY=$(jq -rn \
+            --arg serviceProject "$SERVICE_PROJECT" \
+            --arg serviceName "$SERVICE_NAME" \
+            --arg projectVersion "$PROJECT_VERSION" \
+            '{"actions.id":"build","actions.service.project":$serviceProject,"actions.service.name":$serviceName,"actions.package.version":$projectVersion} | @uri')
+
+          RESPONSE=$(curl -s -X 'POST' \
+            "${BROKER_URL}/v1/intention/search?where=${WHERE_QUERY}&offset=0&limit=1" \
+            -H 'accept: application/json' \
+            -H 'Authorization: Bearer '"${BROKER_JWT}"'' \
+            -d '' \
+            --retry 2 \
+            --max-time 30 \
+            --connect-timeout 10 \
+            --retry-delay 5 \
+          )
+          if echo "$RESPONSE" | jq -e '.statusCode == 401' > /dev/null; then
+            echo "Status code is 401. This indicates an authorization error."
+            echo "Please check if your Broker Token is valid. Teams can generate a new one in Broker if needed."
+            echo "Link: https://broker.io.nrs.gov.bc.ca/browse/brokerAccount"
+            echo "Exiting..."
+            exit 1
+          fi
+          if [ "$(echo "$RESPONSE" | jq '.data | length')" -eq 0 ] || \
+             [ "$(echo "$RESPONSE" | jq '.data[].actions[].artifacts | length')" -eq 0 ]; then
+            echo
+            echo "============================================================"
+            echo "Error: Broker API response data is empty."
+            echo "------------------------------------------------------------"
+            echo "Explanation: No build information was found for this tag."
+            echo "Why it matters: The deployment cannot proceed without build metadata."
+            echo "Check if the most recent build completed and published the artifact to Broker."
+            echo "--- Broker API response below ---"
+            echo "$RESPONSE"
+            echo "============================================================"
+            echo
+            exit 1
+          fi
+          echo "project_tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "project_version=${PROJECT_VERSION}" >> $GITHUB_OUTPUT
+          echo "checkout_ref=${{ github.ref }}" >> $GITHUB_OUTPUT
+          echo "build_version=$(echo ${RESPONSE} | jq -r '.data[].actions[].package.buildVersion')" >> $GITHUB_OUTPUT
+          echo "build_guid=$(echo ${RESPONSE} | jq -r '.data[].id')" >> $GITHUB_OUTPUT
+          echo "build_number=$(echo ${RESPONSE} | jq -r '.data[].actions[].package.buildNumber')" >> $GITHUB_OUTPUT
+          echo "artifact_name=$(echo ${RESPONSE} | jq -r '.data[].actions[].artifacts[].name')" >> $GITHUB_OUTPUT
+          artifact_checksum=$(echo ${RESPONSE} | jq -r '.data[].actions[].artifacts[].checksum')
+          echo "artifact_sha256=${artifact_checksum#sha256:}" >> $GITHUB_OUTPUT
+        env:
+          BROKER_URL: https://broker.io.nrs.gov.bc.ca
+          BROKER_JWT: ${{ secrets.broker_jwt_blah }}
+          SERVICE_PROJECT: ${{ env.SERVICE_PROJECT }}
+          SERVICE_NAME: ${{ env.SERVICE_NAME }}
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+            fetch-depth: 0
+            fetch-tags: true
+            ref: ${{ steps.set-tag-output.outputs.checkout_ref || github.ref }}
+      - name: Set download URL
+        id: set-download-url
+        run: |
+          DOWNLOAD_URL="${PACKAGE_REPO}:${PACKAGE_TAG}"
+          echo "${DOWNLOAD_URL}"
+          echo "download_url=$(echo ${DOWNLOAD_URL})" >> $GITHUB_OUTPUT
+        env:
+          PACKAGE_TAG: ${{ steps.set-tag-output.outputs.project_version }}
+          PACKAGE_REPO: ${{ env.PACKAGE_REPO }}
+
+  submit-deployment-job:
+    name: Submit deployment job
+    if: |
+      always() &&
+      ((needs.deploy-pre-release-build.result == 'success' && needs.deploy-release-build.result == 'skipped') ||
+      (needs.deploy-pre-release-build.result == 'skipped' && needs.deploy-release-build.result == 'success'))
+    needs: [deploy-pre-release-build, deploy-release-build]
+    permissions:
+      actions: read
+      packages: read
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+            fetch-depth: 0
+            fetch-tags: true
+            ref: ${{ github.ref }}
+      - name: Get deployment approver
+        id: get-deployment-approver
+        run: |
+          set -e
+          ENVIRONMENT="${{ inputs.environment || 'development' }}"
+          REPO="${{ github.repository }}"
+
+          ENV_INFO=$(gh api repos/${REPO}/environments/${ENVIRONMENT} || echo "{}")
+          REVIEWERS=$(echo "$ENV_INFO" | jq -r '.protection_rules[]? | select(.reviewers != null) | .reviewers[0] // false')
+          if [[ -z "$REVIEWERS" ]]; then
+            REVIEWERS_REQUIRED=false
+          else
+            REVIEWERS_REQUIRED=true
+          fi
+
+          if [[ "$REVIEWERS_REQUIRED" == "true" ]]; then
+            RUN_ID="${{ github.run_id }}"
+            APPROVALS_JSON=$(gh api repos/${REPO}/actions/runs/${RUN_ID}/approvals)
+            APPROVER_ID=$(echo "$APPROVALS_JSON" | jq -r --arg ENVIRONMENT "$ENVIRONMENT" \
+              '.[] | select(.environments[]?.name == $ENVIRONMENT) | .user.id // empty')
+            if [[ -z "$APPROVER_ID" ]]; then
+              echo "No approver found for run ID: $RUN_ID"
+              exit 1
+            fi
+            echo "approver_id=${APPROVER_ID}@GitHub" >> $GITHUB_OUTPUT
+          else
+            ACTOR_ID=$(gh api users/${{ github.actor }} | jq -r '.id')
+            echo "approver_id=${ACTOR_ID}@GitHub" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Submit deployment job
+        id: submit-job
+        run: |
+          GH_TASK_START=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
+          echo "gh_task_start=$GH_TASK_START" >> $GITHUB_OUTPUT
+
+          if [[ -n "${{ steps.get-deployment-approver.outputs.approver_id }}" ]]; then
+            DEPLOYMENT_APPROVER="${{ steps.get-deployment-approver.outputs.approver_id }}"
+          else
+            echo "Error: No deployment approver found. Failing deployment."
+            exit 1
+          fi
+
+          DEPLOY_TAG="${{ inputs.deploy_tag }}"
+          if [[ -z "$DEPLOY_TAG" ]]; then
+            DEPLOY_TAG="latest"
+          fi
+          DEPLOY_URL="ghcr.io/${{ github.repository }}/deployment-config:${DEPLOY_TAG}"
+          TRIGGER_UUID=$(uuidgen)
+          echo "trigger_uuid=$TRIGGER_UUID" >> $GITHUB_OUTPUT
+
+          SUBMIT_START_EPOCH=$(date +%s)
+          JENKINS_RESPONSE_FILE=$(mktemp)
+          set +e
+          HTTP_CODE=$(curl -sS \
+          --output "${JENKINS_RESPONSE_FILE}" \
+          --write-out "%{http_code}" \
+          --retry 2 \
+          --retry-delay 2 \
+          --retry-all-errors \
+          --connect-timeout 10 \
+          --max-time 30 \
+          --data-urlencode "token=${{ secrets.JENKINS_TOKEN }}" \
+          --data-urlencode "githubRunId=${TRIGGER_UUID}" \
+          --data-urlencode "githubToken=${{ secrets.GITHUB_TOKEN }}" \
+          --data-urlencode "brokerJwt=${{ secrets.broker_jwt_blah }}" \
+          --data-urlencode "deployUrl=${DEPLOY_URL}" \
+          --data-urlencode "deployRoot=" \
+          --data-urlencode "artifactUrl=${DOWNLOAD_URL}" \
+          --data-urlencode "artifactSrc=repo" \
+          --data-urlencode "artifactSha256=${ARTIFACT_SHA256}" \
+          --data-urlencode "projectVersion=${PROJECT_VERSION}" \
+          --data-urlencode "envLong=${{ inputs.environment || 'development' }}" \
+          --data-urlencode "targetPlatform=ocp" \
+          --data-urlencode "autoDeployEphemeral=false" \
+          --data-urlencode "isEphemeral=${{ github.event_name == 'pull_request' }}" \
+          --data-urlencode "triggerUrl=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          --data-urlencode "deploymentApprover=${DEPLOYMENT_APPROVER}" \
+          --data-urlencode "intentionId=${BUILD_GUID}" \
+          -H "Connection: close" \
+          ${{ env.URL }}/${{ env.JOB }})
+          CURL_EXIT_CODE=$?
+          set -e
+          SUBMIT_END_EPOCH=$(date +%s)
+
+          echo "submit_http_code=${HTTP_CODE}" >> $GITHUB_OUTPUT
+          echo "submit_curl_exit_code=${CURL_EXIT_CODE}" >> $GITHUB_OUTPUT
+          echo "submit_duration_seconds=$((SUBMIT_END_EPOCH - SUBMIT_START_EPOCH))" >> $GITHUB_OUTPUT
+
+          if [[ "${CURL_EXIT_CODE}" -ne 0 ]]; then
+            echo "::error::Failed to submit deployment job to Jenkins (curl exit code ${CURL_EXIT_CODE})."
+            if [[ -s "${JENKINS_RESPONSE_FILE}" ]]; then
+              echo "Jenkins response body (truncated):"
+              head -c 500 "${JENKINS_RESPONSE_FILE}"
+              echo
+            fi
+            rm -f "${JENKINS_RESPONSE_FILE}"
+            exit 1
+          fi
+
+          if [[ ! "${HTTP_CODE}" =~ ^(2|3)[0-9][0-9]$ ]]; then
+            echo "::error::Jenkins deployment submit returned non-success HTTP status ${HTTP_CODE}."
+            if [[ -s "${JENKINS_RESPONSE_FILE}" ]]; then
+              echo "Jenkins response body (truncated):"
+              head -c 500 "${JENKINS_RESPONSE_FILE}"
+              echo
+            fi
+            rm -f "${JENKINS_RESPONSE_FILE}"
+            exit 1
+          fi
+          rm -f "${JENKINS_RESPONSE_FILE}"
+        env:
+          BROKER_URL: https://broker.io.nrs.gov.bc.ca
+          BROKER_JWT: ${{ secrets.broker_jwt_blah }}
+          SERVICE_PROJECT: ${{ env.SERVICE_PROJECT }}
+          SERVICE_NAME: ${{ env.SERVICE_NAME }}
+          PROJECT_VERSION: ${{ needs.deploy-pre-release-build.outputs.project_version || needs.deploy-release-build.outputs.project_version }}
+          BUILD_GUID: ${{ needs.deploy-pre-release-build.outputs.build_guid || needs.deploy-release-build.outputs.build_guid }}
+          BUILD_NUMBER: ${{ needs.deploy-pre-release-build.outputs.build_number || needs.deploy-release-build.outputs.build_number }}
+          ARTIFACT_NAME: ${{ needs.deploy-pre-release-build.outputs.artifact_name || needs.deploy-release-build.outputs.artifact_name }}
+          ARTIFACT_SHA256: ${{ needs.deploy-pre-release-build.outputs.artifact_sha256 || needs.deploy-release-build.outputs.artifact_sha256 }}
+          DOWNLOAD_URL: ${{ needs.deploy-pre-release-build.outputs.download_url || needs.deploy-release-build.outputs.download_url }}

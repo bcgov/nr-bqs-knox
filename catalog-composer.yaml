@@ -1,0 +1,22 @@
+apiVersion: composer.io.nrs.gov.bc.ca/v1
+kind: NRComposer
+spec:
+  generators:
+    - backstage
+    - gh-docker-build
+    - gh-oci-deploy-ocp
+  answers:
+    ociArtifacts: ""
+    deploymentConfigPaths: charts
+    unitTestsPath: ""
+    artifactRepositoryType: GitHubPackages
+    artifactRepositoryPath: https://maven.pkg.github.com/bcgov-nr/oscar-ocp
+    toolsBuildSecrets: ""
+    toolsLocalBuildSecrets: ""
+    clientId: blah
+    publishArtifactSuffix: dist
+    customRunner: "group: Larger Runners - OpenShift Static-IP"
+    postDeployTestsPath: ""
+    deployType: nodejs
+    artifactSrc: repo
+    autoDeployEphemeral: false

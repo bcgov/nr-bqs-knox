@@ -1,0 +1,56 @@
+name: Retain GHCR Release Package Versions
+
+on:
+  workflow_dispatch:
+
+jobs:
+  retain-packages:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package_name: nr-bqs-knox/nr-bqs-knox
+            keep_versions: 10
+
+    steps:
+      - name: Delete old non-release versions (Keep ${{ matrix.keep_versions }})
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE_NAME: ${{ matrix.package_name }}
+          KEEP_VERSIONS: ${{ matrix.keep_versions }}
+          RELEASE_REGEX: '^(?:[vd])?\d+(?:\.\d+)*(?:-\d+)?$'
+        run: |
+          set -euo pipefail
+
+          package_name_encoded="${PACKAGE_NAME//\//%2F}"
+
+          versions_json=$(gh api -H "Accept: application/vnd.github+json" \
+            "/orgs/${OWNER}/packages/container/${package_name_encoded}/versions" \
+            --paginate)
+
+          delete_ids=$(echo "${versions_json}" | jq -r \
+            --arg release_regex "${RELEASE_REGEX}" \
+            --argjson keep "${KEEP_VERSIONS}" '
+              sort_by(.created_at) | reverse
+              | map(select((((.metadata.container.tags // []) | any(test($release_regex))) | not)))
+              | .[$keep:]
+              | .[]?.id
+            ')
+
+          if [[ -z "${delete_ids}" ]]; then
+            echo "No old non-release versions to delete for ${PACKAGE_NAME}"
+            exit 0
+          fi
+
+          while IFS= read -r version_id; do
+            [[ -z "${version_id}" ]] && continue
+            echo "Deleting ${PACKAGE_NAME} version id: ${version_id}"
+            gh api \
+              --method DELETE \
+              -H "Accept: application/vnd.github+json" \
+              "/orgs/${OWNER}/packages/container/${package_name_encoded}/versions/${version_id}"
+          done <<< "${delete_ids}"

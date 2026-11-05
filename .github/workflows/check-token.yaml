@@ -1,0 +1,90 @@
+name: Check token expiration
+
+on:
+  workflow_call:
+    inputs:
+      url:
+        description: "The Broker URL"
+        default: https://broker.io.nrs.gov.bc.ca
+        type: string
+    secrets:
+      token:
+        description: "The Broker token"
+        required: true
+permissions: {}
+
+jobs:
+  check-jwt:
+    name: Check broker token
+    runs-on:
+      group: Larger Runners - OpenShift Static-IP
+    steps:
+      - name: Display runner public IP
+        shell: bash
+        run: |
+          set +e
+          RUNNER_PUBLIC_IP=$(curl -fsS --max-time 10 https://api.ipify.org)
+          CURL_EXIT_CODE=$?
+          set -e
+
+          if [ "$CURL_EXIT_CODE" -eq 0 ] && [ -n "$RUNNER_PUBLIC_IP" ]; then
+            echo "Runner public IP: $RUNNER_PUBLIC_IP"
+          else
+            echo "Runner public IP: unavailable"
+          fi
+
+      - name: Check token expiration
+        shell: bash
+        run: |
+          TOKEN_CHECK_URL="${{ inputs.url }}/v1/health/token-check"
+          CURL_ERR_FILE=$(mktemp)
+
+          set +e
+          RESPONSE_CODE=$(curl -o /dev/null -sS -w "%{http_code}" -X 'GET' \
+            "$TOKEN_CHECK_URL" \
+            -H 'accept: */*' \
+            -H 'Authorization: Bearer '"${{ secrets.token }}"'' \
+            --retry 2 \
+            --retry-all-errors \
+            --max-time 30 \
+            --connect-timeout 10 \
+            --retry-delay 5 \
+            2>"${CURL_ERR_FILE}" \
+          )
+          CURL_EXIT_CODE=$?
+          set -e
+
+          if [ "$CURL_EXIT_CODE" -ne 0 ]; then
+            if [ "$CURL_EXIT_CODE" -eq 28 ]; then
+              echo "Error: Timed out while checking Broker token (curl exit code 28)."
+              echo "URL: ${TOKEN_CHECK_URL}"
+              echo "Timeout settings: connect-timeout=10s, max-time=30s, retry=2"
+              echo "This usually indicates temporary network latency or Broker endpoint slowness."
+            else
+              echo "Error: Broker token check request failed (curl exit code ${CURL_EXIT_CODE})."
+              echo "URL: ${TOKEN_CHECK_URL}"
+            fi
+
+            if [ -s "${CURL_ERR_FILE}" ]; then
+              echo "curl error output:"
+              cat "${CURL_ERR_FILE}"
+            fi
+
+            rm -f "${CURL_ERR_FILE}"
+            exit 1
+          fi
+
+          rm -f "${CURL_ERR_FILE}"
+
+          if [ "$RESPONSE_CODE" = "401" ]; then
+            echo "Unauthorized (401)"
+            exit 1
+          elif [ "$RESPONSE_CODE" = "403" ]; then
+            echo "Invalid JWT: Block list has match"
+            exit 1
+          elif [ "$RESPONSE_CODE" = "000" ]; then
+            echo "Error: No HTTP response received from Broker token-check endpoint."
+            exit 1
+          else
+            echo "Response code: $RESPONSE_CODE"
+          fi

@@ -1,0 +1,128 @@
+name: Check Release Package
+
+on:
+  workflow_call:
+    inputs:
+      url:
+        description: "The Broker URL"
+        default: https://broker.io.nrs.gov.bc.ca
+        type: string
+      catalog_info:
+        description: "The catalog file"
+        type: string
+        default: "catalog-info.yaml"
+        required: false
+    outputs:
+      can_rebuild:
+        value: ${{ jobs.check-release-package.outputs.can_rebuild }}
+    secrets:
+      token:
+        description: "The Broker token"
+        required: true
+permissions:
+  contents: read
+
+jobs:
+  check-release-package:
+    name: Check if Release Package Exists
+    runs-on:
+      group: Larger Runners - OpenShift Static-IP
+    outputs:
+      can_rebuild: ${{ steps.check.outputs.can_rebuild }}
+    steps:
+      - name: Display runner public IP
+        shell: bash
+        run: |
+          set +e
+          RUNNER_PUBLIC_IP=$(curl -fsS --max-time 10 https://api.ipify.org)
+          CURL_EXIT_CODE=$?
+          set -e
+
+          if [ "$CURL_EXIT_CODE" -eq 0 ] && [ -n "$RUNNER_PUBLIC_IP" ]; then
+            echo "Runner public IP: $RUNNER_PUBLIC_IP"
+          else
+            echo "Runner public IP: unavailable"
+          fi
+
+      - name: Checkout only catalog-info.yaml
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            ${{ inputs.catalog_info }}
+          sparse-checkout-cone-mode: false
+
+      - name: Verify catalog file exists
+        run: |
+          if [[ ! -f "${{ inputs.catalog_info }}" ]]; then
+            echo "Error: catalog file not found at ${{ inputs.catalog_info }}"
+            exit 1
+          fi
+          echo "Catalog file found: ${{ inputs.catalog_info }}"
+
+      - name: Extract Version From Tag
+        id: tag
+        run: |
+          # Exit successfully if not a tagged release
+          if [[ ! "$GITHUB_REF" =~ ^refs/tags/ ]]; then
+            echo "Not a tagged release, skipping check."
+            exit 0
+          fi
+          # github.ref looks like "refs/tags/v1.2.3"
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Call Broker API to check release
+        id: check
+        run: |
+          VERSION="${{ steps.tag.outputs.version }}"
+          echo "Checking release: $VERSION"
+          BROKER_URL="${{ inputs.url }}"
+          CATALOG_FILE="${{ inputs.catalog_info }}"
+          # Parse project (spec.system) and service (metadata.name) from the Component document in the Backstage catalog-info YAML using yq
+          PROJECT_NAME="$(yq e 'select(.kind == "Component") | .spec.system // ""' "$CATALOG_FILE" | head -1 | tr -d '\r')"
+          SERVICE_NAME="$(yq e 'select(.kind == "Component") | .metadata.name // ""' "$CATALOG_FILE" | head -1 | tr -d '\r')"
+
+          if [ -z "$PROJECT_NAME" ] || [ -z "$SERVICE_NAME" ]; then
+            echo "Failed to parse project or service name from $CATALOG_FILE (spec.system=${PROJECT_NAME:-<empty>}, metadata.name=${SERVICE_NAME:-<empty>})"
+            exit 1
+          fi
+
+          # build JSON where clause (include package-build and version)
+          WHERE_JSON=$(jq -n --arg act "package-build" \
+                           --arg proj "$PROJECT_NAME" \
+                           --arg svc "$SERVICE_NAME" \
+                           --arg ver "$VERSION" \
+                           '{ "actions.action": $act, "actions.service.project": $proj, "actions.service.name": $svc, "actions.package.version": $ver }')
+
+          # URL-encode using jq's @uri (no python required)
+          WHERE_ENC=$(printf '%s' "$WHERE_JSON" | jq -s -R -r @uri)
+
+          QUERY_URL="${BROKER_URL}/v1/intention/search?where=${WHERE_ENC}&offset=0&limit=1"
+
+          RESPONSE=$(curl -s -X POST "$QUERY_URL" \
+            -H "accept: application/json" \
+            -H 'Authorization: Bearer '"${{ secrets.token }}"'' \
+            -d '')
+
+          # Check if data array is empty
+          DATA_LENGTH=$(echo "$RESPONSE" | jq '.data | length')
+          if [ "$DATA_LENGTH" -eq 0 ]; then
+            echo "No release package found. Build process continues..."
+            echo "can_rebuild=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check transaction outcome
+          OUTCOME=$(echo "$RESPONSE" | jq -r '.data[0].transaction.outcome // "failure"')
+          echo "Build outcome: $OUTCOME"
+
+          if [ "$OUTCOME" = "success" ]; then
+            echo "Build is already successful. Stop rebuild!"
+            echo "can_rebuild=false" >> $GITHUB_OUTPUT
+            exit 0
+          else
+            echo "Build failed or outcome is not success. Will continue to rebuild..."
+            echo "can_rebuild=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi

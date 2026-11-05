@@ -1,0 +1,51 @@
+name: Delete GHCR Package for PR Branch
+
+on:
+  pull_request:
+    types: [closed]  # Only run when PR is closed
+
+jobs:
+  delete-ghcr-package:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository # Only run for PRs from same repo
+
+    permissions:
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        package_name:
+          - nr-bqs-knox/nr-bqs-knox
+
+    steps:
+      - name: Delete package version from GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE_NAME: ${{ matrix.package_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          package_name_encoded="${PACKAGE_NAME//\//%2F}"
+
+          version_ids=$(gh api -H "Accept: application/vnd.github+json" \
+            /orgs/${OWNER}/packages/container/${package_name_encoded}/versions \
+            --paginate \
+            --jq '.[] | select(
+              any(.metadata.container.tags[]?;
+                test("(^|[-.])'"$PR_NUMBER"'([-.]|$)")
+                and
+                (test("^'"$PR_NUMBER"'$|^[vVd]?\\d+(\\.\\d+)*$") | not)
+              )
+            ) | .id' || true)
+
+          if [[ -z "${version_ids}" ]]; then
+            echo "No matching preview versions found for ${PACKAGE_NAME} and PR ${PR_NUMBER}"
+            exit 0
+          fi
+
+          for version_id in ${version_ids}; do
+            gh api \
+              --method DELETE -H "Accept: application/vnd.github+json" \
+              /orgs/${OWNER}/packages/container/${package_name_encoded}/versions/${version_id}
+          done

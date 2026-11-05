@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nr-bqs-knox.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nr-bqs-knox.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "nr-bqs-knox.selectorLabels" . | nindent 4 }}
