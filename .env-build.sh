@@ -20,6 +20,11 @@ export PROJECT_NAME="oscar"
 export SERVICE_NAME="nr-bqs-knox"
 export PACKAGE_REPO="https://maven.pkg.github.com/bcgov-nr/nr-bqs-knox"
 
+SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 # Non-Maven build configuration (e.g. Node)
-DEFAULT_VERSION="$(jq -r '.version // empty' "$(dirname "${BASH_SOURCE[0]}")/package.json" 2>/dev/null)"
+# Base version precedence: VERSION env var > package.json > VERSION file > fallback.
+DEFAULT_VERSION="$(jq -r '.version // empty' "${SCRIPT_DIR}/package.json" 2>/dev/null)"
+if [[ -z "$DEFAULT_VERSION" && -f "${SCRIPT_DIR}/VERSION" ]]; then
+  DEFAULT_VERSION="$(tr -d '[:space:]' < "${SCRIPT_DIR}/VERSION")"
+fi
 export VERSION="${VERSION:-${DEFAULT_VERSION:-0.0.0}}"
