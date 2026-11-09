@@ -64,7 +64,7 @@ jobs:
             exit 1
           fi
 
-          RESPONSE=$(curl -s "https://api.github.com/repos/bcgov-nr/nr-bqs-knox/actions/workflows/${{ inputs.build_workflow }}/runs?head_sha=${{ github.sha }}&branch=${{ github.ref_name }}" \
+          RESPONSE=$(curl -s "https://api.github.com/repos/bcgov/nr-bqs-knox/actions/workflows/${{ inputs.build_workflow }}/runs?head_sha=${{ github.sha }}&branch=${{ github.ref_name }}" \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json")
           { read -r TOTAL_COUNT; } < <(jq -r '.total_count // 0' <<< "$RESPONSE")
@@ -73,12 +73,12 @@ jobs:
             { read -r BUILD_ACTION_NAME; read -r BUILD_ACTION_STATUS; read -r BUILD_ACTION_URL; } < <(jq -r '.workflow_runs | sort_by(.run_number) | reverse | .[0] | .name // "", .conclusion // "", .html_url // ""' <<< "$RESPONSE")
           else
             # monorepo build - lookup build status by job id
-            RESPONSE=$(curl -s "https://api.github.com/repos/bcgov-nr/nr-bqs-knox/actions/workflows/build-release.yaml/runs?head_sha=${{ github.sha }}&branch=${{ github.ref_name }}" \
+            RESPONSE=$(curl -s "https://api.github.com/repos/bcgov/nr-bqs-knox/actions/workflows/build-release.yaml/runs?head_sha=${{ github.sha }}&branch=${{ github.ref_name }}" \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github+json")
             { read -r BUILD_ACTION_ID; } < <(jq -r '.workflow_runs | sort_by(.run_number) | reverse | .[0] | .id // ""' <<< "$RESPONSE")
             if [[ "$BUILD_ACTION_ID" != "" ]]; then
-              JOB_RESPONSE=$(curl -s "https://api.github.com/repos/bcgov-nr/nr-bqs-knox/actions/runs/$BUILD_ACTION_ID/jobs" \
+              JOB_RESPONSE=$(curl -s "https://api.github.com/repos/bcgov/nr-bqs-knox/actions/runs/$BUILD_ACTION_ID/jobs" \
                 -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
                 -H "Accept: application/vnd.github+json")
               { read -r BUILD_ACTION_NAME; read -r BUILD_ACTION_STATUS; read -r BUILD_ACTION_URL; } < <(jq -r '.jobs | map(select(.name == "'"$SERVICE_NAME"' / Build and publish")).[] | .name // "", .conclusion // "", .html_url // ""' <<< "$JOB_RESPONSE")

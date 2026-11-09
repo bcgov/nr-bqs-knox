@@ -13,4 +13,4 @@ metadata:
     - website
   annotations:
     license: Apache-2.0
-    github.com/project-slug: bcgov-nr/nr-bqs-knox
+    github.com/project-slug: bcgov/nr-bqs-knox

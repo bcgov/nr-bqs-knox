@@ -45,11 +45,11 @@ jobs:
         id: lookup-pr-merge-ref
         run: |
           if [[ ${{ github.ref_name != 'main' }} = true ]]; then
-            RESPONSE=$(curl -s "https://api.github.com/repos/bcgov-nr/nr-bqs-knox/pulls?head=bcgov-nr:${{ github.ref_name }}&state=open&base=main" \
+            RESPONSE=$(curl -s "https://api.github.com/repos/bcgov/nr-bqs-knox/pulls?head=bcgov:${{ github.ref_name }}&state=open&base=main" \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github+json")
             PULL_REQUEST_NUMBER=$(echo "${RESPONSE}" | jq -r .[0].number)
-            RESPONSE=$(curl -s "https://api.github.com/repos/bcgov-nr/nr-bqs-knox/pulls/$PULL_REQUEST_NUMBER" \
+            RESPONSE=$(curl -s "https://api.github.com/repos/bcgov/nr-bqs-knox/pulls/$PULL_REQUEST_NUMBER" \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github+json")
             MERGEABLE=$(echo "${RESPONSE}" | jq -r .mergeable)

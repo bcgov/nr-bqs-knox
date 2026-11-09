@@ -81,7 +81,7 @@ jobs:
         env:
           DEPLOYMENT_CONFIG_PATHS: .jenkins catalog-info.yaml charts
           DEPLOY_TYPE: nodejs
-          PROJECT_SLUG: bcgov-nr/nr-bqs-knox
+          PROJECT_SLUG: bcgov/nr-bqs-knox
       - name: Push deployment config to registry
         id: publish-dc
         uses: ./.github/actions/oci-publish

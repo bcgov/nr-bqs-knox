@@ -26,7 +26,7 @@ runs:
           echo "checkout_ref=${{ github.ref }}" >> $GITHUB_OUTPUT
           echo "version_modifier=${{ github.ref_name }}" >> $GITHUB_OUTPUT
         elif [[ ${{ github.ref_name != 'main' }} = true ]]; then
-          RESPONSE=$(curl -s "https://api.github.com/repos/bcgov-nr/nr-bqs-knox/pulls?head=bcgov-nr:${{ github.head_ref || github.ref_name }}&state=open&base=main" \
+          RESPONSE=$(curl -s "https://api.github.com/repos/bcgov/nr-bqs-knox/pulls?head=bcgov:${{ github.head_ref || github.ref_name }}&state=open&base=main" \
             -H "Authorization: token ${{ inputs.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
             --retry 2 \
@@ -34,7 +34,7 @@ runs:
             --connect-timeout 10 \
             --retry-delay 5)
           PULL_REQUEST_NUMBER=$(echo "${RESPONSE}" | jq -r .[0].number)
-          RESPONSE=$(curl -s "https://api.github.com/repos/bcgov-nr/nr-bqs-knox/pulls/$PULL_REQUEST_NUMBER" \
+          RESPONSE=$(curl -s "https://api.github.com/repos/bcgov/nr-bqs-knox/pulls/$PULL_REQUEST_NUMBER" \
             -H "Authorization: token ${{ inputs.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
             --retry 2 \
