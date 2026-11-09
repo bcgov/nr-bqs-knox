@@ -16,7 +16,7 @@ concurrency:
 
 env:
   BROKER_URL: https://broker.io.nrs.gov.bc.ca
-  BROKER_JWT: ${{ secrets.broker_jwt_blah }}
+  BROKER_JWT: ${{ secrets.broker_jwt_dadb08a0_973a_40f7_8c20_63d17e92c3bc }}
   SERVICE_PROJECT: oscar
   SERVICE_NAME: nr-bqs-knox
   DEFAULT_VERSION: ${{ vars.DEFAULT_VERSION || '0.0.0' }}-merge
@@ -32,7 +32,7 @@ jobs:
       preflight_context: build
       catalog_info: catalog-info.yaml
     secrets:
-      token: ${{ secrets.broker_jwt_blah }}
+      token: ${{ secrets.broker_jwt_dadb08a0_973a_40f7_8c20_63d17e92c3bc }}
   build-publish:
     name: Build and publish
     runs-on: ubuntu-latest
@@ -90,7 +90,7 @@ jobs:
       - name: Open intention
         uses: bcgov-nr/action-broker-intention-open@v2
         with:
-          broker_jwt: ${{ secrets.broker_jwt_blah }}
+          broker_jwt: ${{ secrets.broker_jwt_dadb08a0_973a_40f7_8c20_63d17e92c3bc }}
           intention_path: intention.json
           quickstart: true
       - name: Echo intention ID for deploy job

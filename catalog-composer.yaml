@@ -13,7 +13,7 @@ spec:
     artifactRepositoryPath: https://maven.pkg.github.com/bcgov-nr/nr-bqs-knox
     toolsBuildSecrets: ""
     toolsLocalBuildSecrets: ""
-    clientId: blah
+    clientId: dadb08a0-973a-40f7-8c20-63d17e92c3bc
     publishArtifactSuffix: dist
     customRunner: "ubuntu-latest"
     postDeployTestsPath: ""

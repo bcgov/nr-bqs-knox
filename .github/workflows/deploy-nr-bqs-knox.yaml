@@ -66,7 +66,7 @@ jobs:
           fi
         env:
           BROKER_URL: https://broker.io.nrs.gov.bc.ca
-          BROKER_JWT: ${{ secrets.broker_jwt_blah }}
+          BROKER_JWT: ${{ secrets.broker_jwt_dadb08a0_973a_40f7_8c20_63d17e92c3bc }}
           SERVICE_PROJECT: ${{ env.SERVICE_PROJECT }}
           SERVICE_NAME: ${{ env.SERVICE_NAME }}
       - name: Set build output
@@ -119,7 +119,7 @@ jobs:
           echo "artifact_sha256=${artifact_checksum#sha256:}" >> $GITHUB_OUTPUT
         env:
           BROKER_URL: https://broker.io.nrs.gov.bc.ca
-          BROKER_JWT: ${{ secrets.broker_jwt_blah }}
+          BROKER_JWT: ${{ secrets.broker_jwt_dadb08a0_973a_40f7_8c20_63d17e92c3bc }}
           SERVICE_PROJECT: ${{ env.SERVICE_PROJECT }}
           SERVICE_NAME: ${{ env.SERVICE_NAME }}
           BUILD_SHA: ${{ steps.lookup-pr-merge-ref.outputs.build_sha }}
@@ -211,7 +211,7 @@ jobs:
           echo "artifact_sha256=${artifact_checksum#sha256:}" >> $GITHUB_OUTPUT
         env:
           BROKER_URL: https://broker.io.nrs.gov.bc.ca
-          BROKER_JWT: ${{ secrets.broker_jwt_blah }}
+          BROKER_JWT: ${{ secrets.broker_jwt_dadb08a0_973a_40f7_8c20_63d17e92c3bc }}
           SERVICE_PROJECT: ${{ env.SERVICE_PROJECT }}
           SERVICE_NAME: ${{ env.SERVICE_NAME }}
       - name: Checkout repository
@@ -315,7 +315,7 @@ jobs:
           --data-urlencode "token=${{ secrets.JENKINS_TOKEN }}" \
           --data-urlencode "githubRunId=${TRIGGER_UUID}" \
           --data-urlencode "githubToken=${{ secrets.GITHUB_TOKEN }}" \
-          --data-urlencode "brokerJwt=${{ secrets.broker_jwt_blah }}" \
+          --data-urlencode "brokerJwt=${{ secrets.broker_jwt_dadb08a0_973a_40f7_8c20_63d17e92c3bc }}" \
           --data-urlencode "deployUrl=${DEPLOY_URL}" \
           --data-urlencode "deployRoot=" \
           --data-urlencode "artifactUrl=${DOWNLOAD_URL}" \
@@ -363,7 +363,7 @@ jobs:
           rm -f "${JENKINS_RESPONSE_FILE}"
         env:
           BROKER_URL: https://broker.io.nrs.gov.bc.ca
-          BROKER_JWT: ${{ secrets.broker_jwt_blah }}
+          BROKER_JWT: ${{ secrets.broker_jwt_dadb08a0_973a_40f7_8c20_63d17e92c3bc }}
           SERVICE_PROJECT: ${{ env.SERVICE_PROJECT }}
           SERVICE_NAME: ${{ env.SERVICE_NAME }}
           PROJECT_VERSION: ${{ needs.deploy-pre-release-build.outputs.project_version || needs.deploy-release-build.outputs.project_version }}

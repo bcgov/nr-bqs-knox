@@ -31,7 +31,7 @@ jobs:
       preflight_context: deploy
       build_workflow: build-release-nr-bqs-knox.yaml
     secrets:
-      token: ${{ secrets.broker_jwt_blah }}
+      token: ${{ secrets.broker_jwt_dadb08a0_973a_40f7_8c20_63d17e92c3bc }}
 
   find-tag:
     name: Find latest deployment tag
